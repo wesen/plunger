@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/go-go-golems/plunger/pkg"
+	"github.com/go-go-golems/plunger/pkg/logger"
 	"github.com/jmoiron/sqlx"
 	"github.com/rs/zerolog"
 	"io"
@@ -10,11 +10,11 @@ import (
 )
 
 func main() {
-	schema := pkg.NewSchema()
+	schema := logger.NewSchema()
 	schema.MetaKeys.Add("foo")
 	schema.MetaKeys.Add("bar")
 
-	logger, db, err := pkg.InitLogging(&pkg.LoggerConfig{
+	logger, db, err := logger.InitLogging(&logger.LoggerConfig{
 		WithCaller: false,
 		Level:      "info",
 		DBFile:     "/tmp/test.db",

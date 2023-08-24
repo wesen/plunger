@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	clay "github.com/go-go-golems/clay/pkg"
-	"github.com/go-go-golems/plunger/pkg"
+	"github.com/go-go-golems/plunger/pkg/logger"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -20,7 +20,7 @@ var logCmd = &cobra.Command{
 
 		metaKeys, _ := cmd.Flags().GetStringSlice("meta-keys")
 
-		schema := pkg.NewSchema()
+		schema := logger.NewSchema()
 
 		for _, metaKey := range metaKeys {
 			schema.MetaKeys.Add(metaKey)
@@ -29,7 +29,7 @@ var logCmd = &cobra.Command{
 		logWriter, err := initConfigAndLogging(force, schema)
 		cobra.CheckErr(err)
 
-		defer func(logWriter *pkg.LogWriter) {
+		defer func(logWriter *logger.LogWriter) {
 			err := logWriter.Close()
 			if err != nil {
 				fmt.Println(err)
@@ -46,7 +46,7 @@ var logCmd = &cobra.Command{
 	},
 }
 
-func initConfigAndLogging(deleteFile bool, schema *pkg.Schema) (*pkg.LogWriter, error) {
+func initConfigAndLogging(deleteFile bool, schema *logger.Schema) (*logger.LogWriter, error) {
 	err := clay.InitViper("plunger", rootCmd)
 	cobra.CheckErr(err)
 
@@ -56,7 +56,7 @@ func initConfigAndLogging(deleteFile bool, schema *pkg.Schema) (*pkg.LogWriter, 
 		logLevel = "debug"
 	}
 
-	config := &pkg.LoggerConfig{
+	config := &logger.LoggerConfig{
 		WithCaller: viper.GetBool("with-caller"),
 		Level:      logLevel,
 		DBFile:     viper.GetString("db"),
@@ -70,7 +70,7 @@ func initConfigAndLogging(deleteFile bool, schema *pkg.Schema) (*pkg.LogWriter, 
 		}
 	}
 
-	logWriter, _, err := pkg.InitLogging(config)
+	logWriter, _, err := logger.InitLogging(config)
 	cobra.CheckErr(err)
 
 	return logWriter, err

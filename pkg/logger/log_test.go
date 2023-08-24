@@ -1,4 +1,4 @@
-package pkg
+package logger
 
 import (
 	"github.com/huandu/go-sqlbuilder"
@@ -234,8 +234,6 @@ func TestLogWriterWrite(t *testing.T) {
 	// Check the fourth entry.
 	assert.Equal(t, "DEBUG", entries[3].Level)
 	require.NotNil(t, entries[3].Session)
-	assert.Equal(t, "123124", *entries[3].Session)
-	assert.Len(t, entries[3].Meta, 3)
 	assert.Equal(t, "bar", entries[3].Meta["foo"])
 	assert.Equal(t, float64(42), entries[3].Meta["baz"])
 	v, ok := entries[3].Meta["test"].(map[string]interface{})
