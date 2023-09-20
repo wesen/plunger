@@ -30,7 +30,7 @@ brews:
   - name: plunger
     description: "Sqleton is a tool for querying databases"
     homepage: "https://github.com/go-go-golems/plunger"
-    tap:
+    repository:
       owner: go-go-golems
       name: homebrew-go-go-go
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
