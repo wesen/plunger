@@ -7,133 +7,11 @@ import (
 	"github.com/huandu/go-sqlbuilder"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/pkg/errors"
+	"io"
 	"sort"
 	"strings"
 	"time"
 )
-
-// LogEntryType represents the different types LogEntries can have.
-type LogEntryType int
-
-const (
-	LogEntryTypeReal LogEntryType = iota
-	LogEntryTypeText
-	LogEntryTypeBlob
-	LogEntryTypeJSON
-)
-
-func (t LogEntryType) String() string {
-	switch t {
-	case LogEntryTypeReal:
-		return "real"
-	case LogEntryTypeText:
-		return "text"
-	case LogEntryTypeBlob:
-		return "blob"
-	case LogEntryTypeJSON:
-		return "json"
-	}
-	return "unknown"
-}
-
-type Row struct {
-	Name string
-	Type LogEntryType
-}
-
-// MetaKey is used to store keys that are often used, to avoid storing them as full strings.
-// Instead, we store them by id and use a lookup table to get the full string.
-type MetaKey struct {
-	Name string
-	ID   int
-}
-
-// MetaKeys is a collection of MetaKey. It is used to quickly manage
-// adding new keys.
-type MetaKeys struct {
-	Keys      map[string]*MetaKey
-	namesById map[int]string
-	maxID     int
-}
-
-func NewMetaKeys() *MetaKeys {
-	return &MetaKeys{
-		Keys:      make(map[string]*MetaKey),
-		namesById: make(map[int]string),
-		maxID:     0,
-	}
-}
-
-func (m *MetaKeys) Get(name string) (*MetaKey, bool) {
-	key, ok := m.Keys[name]
-	return key, ok
-}
-
-func (m *MetaKeys) GetByID(id int) (*MetaKey, bool) {
-	name, ok := m.namesById[id]
-	if !ok {
-		return nil, false
-	}
-	return m.Get(name)
-}
-
-func (m *MetaKeys) Add(name string) *MetaKey {
-	key, ok := m.Get(name)
-	if ok {
-		return key
-	}
-
-	key = &MetaKey{
-		Name: name,
-		ID:   m.maxID,
-	}
-	m.maxID++
-	m.Keys[name] = key
-	m.namesById[key.ID] = name
-	return key
-}
-
-func (m *MetaKeys) AddWithID(name string, id int) (*MetaKey, error) {
-	name_, ok := m.namesById[id]
-	if ok {
-		if name_ != name {
-			return nil, fmt.Errorf("key %s already exists with id %d", name_, id)
-		}
-	}
-
-	key, ok := m.Get(name)
-	if ok {
-		if key.ID != id {
-			return key, fmt.Errorf("key %s already exists with id %d", name, key.ID)
-		}
-		return key, nil
-	}
-
-	key = &MetaKey{
-		Name: name,
-		ID:   id,
-	}
-	if id > m.maxID {
-		m.maxID = id
-	}
-	m.maxID++
-	m.namesById[id] = name
-	m.Keys[name] = key
-
-	return key, nil
-}
-
-// Schema is a set of MetaKeys
-type Schema struct {
-	MetaKeys *MetaKeys
-}
-
-func NewSchema() *Schema {
-	return &Schema{
-		MetaKeys: NewMetaKeys(),
-	}
-}
 
 // LogWriter is the main class in Plunger.
 //
@@ -144,6 +22,8 @@ type LogWriter struct {
 
 	schema *Schema
 }
+
+var _ io.Writer = (*LogWriter)(nil)
 
 func NewLogWriter(db *sqlx.DB, schema *Schema) *LogWriter {
 	return &LogWriter{
@@ -158,43 +38,6 @@ func (l *LogWriter) Close() error {
 	} else {
 		return nil
 	}
-}
-
-func ToLogEntryType(v interface{}) LogEntryType {
-	switch v.(type) {
-	case float32:
-		return LogEntryTypeReal
-	case float64:
-		return LogEntryTypeReal
-	case int:
-		return LogEntryTypeReal
-	case int8:
-		return LogEntryTypeReal
-	case int16:
-		return LogEntryTypeReal
-	case int32:
-		return LogEntryTypeReal
-	case int64:
-		return LogEntryTypeReal
-	case uint:
-		return LogEntryTypeReal
-	case uint8:
-		return LogEntryTypeReal
-	case uint16:
-		return LogEntryTypeReal
-	case uint32:
-		return LogEntryTypeReal
-	case uint64:
-		return LogEntryTypeReal
-
-	case string:
-		return LogEntryTypeText
-	case []byte:
-		return LogEntryTypeBlob
-	default:
-		return LogEntryTypeJSON
-	}
-
 }
 
 func (l *LogWriter) Write(p []byte) (int, error) {
@@ -259,6 +102,10 @@ func (l *LogWriter) Write(p []byte) (int, error) {
 			typeValue = LogEntryTypeJSON
 		}
 
+		// NOTE(manuel, 2023-10-22) Honestly this is all preemptive optimization, I actually don't know if this is necessary.
+		// Maybe the app using the logger could instead just give which columns should be used.
+
+		// If we have a metakey for this key, use its id for storage.
 		if metaKey, ok := l.schema.MetaKeys.Get(k); ok {
 			meta_key_id = sql.NullInt32{Int32: int32(metaKey.ID), Valid: true}
 		} else {
@@ -266,6 +113,7 @@ func (l *LogWriter) Write(p []byte) (int, error) {
 		}
 
 		q := sqlbuilder.NewInsertBuilder()
+		// NOTE(manuel, 2023-10-22) We could probably collect the values and do only a single insert with all the values at once
 		q.InsertInto("log_entries_meta").
 			Cols("log_entry_id", "type", "name", "meta_key_id", "int_value", "real_value", "text_value", "blob_value").
 			Values(logEntryID, typeValue, name, meta_key_id, intValue, realValue, textValue, blobValue)
@@ -276,172 +124,6 @@ func (l *LogWriter) Write(p []byte) (int, error) {
 	}
 
 	return len(p), nil
-}
-
-type LogEntry struct {
-	ID      int       `db:"id"`
-	Date    time.Time `db:"date"`
-	Level   string    `db:"level"`
-	Session *string   `db:"session"`
-	Meta    map[string]interface{}
-}
-
-type LogEntryMeta struct {
-	ID         int          `db:"id"`
-	LogEntryID int          `db:"log_entry_id"`
-	Type       LogEntryType `db:"type"`
-	Name       *string      `db:"name"`
-	MetaKeyID  *int         `db:"meta_key_id"`
-	IntValue   *int64       `db:"int_value"`
-	RealValue  *float64     `db:"real_value"`
-	TextValue  *string      `db:"text_value"`
-	BlobValue  *[]byte      `db:"blob_value"`
-	MetaKey    *string      `db:"meta_key"`
-}
-
-func (lem *LogEntryMeta) Value() (interface{}, error) {
-	switch lem.Type {
-	case LogEntryTypeReal:
-		if lem.RealValue == nil {
-			return nil, errors.New("real value is nil")
-		}
-		return *lem.RealValue, nil
-	case LogEntryTypeText:
-		if lem.TextValue == nil {
-			return nil, errors.New("text value is nil")
-		}
-		return *lem.TextValue, nil
-	case LogEntryTypeJSON:
-		if lem.BlobValue == nil {
-			return nil, errors.New("blob value is nil")
-		}
-		var v interface{}
-		if err := json.Unmarshal(*lem.BlobValue, &v); err != nil {
-			return nil, err
-		}
-		return v, nil
-	case LogEntryTypeBlob:
-		if lem.BlobValue == nil {
-			return nil, errors.New("blob value is nil")
-		}
-		return *lem.BlobValue, nil
-	default:
-		return nil, errors.New("unknown type")
-	}
-}
-
-type GetEntriesFilter struct {
-	Level            string
-	Session          string
-	From             time.Time
-	To               time.Time
-	SelectedMetaKeys []string
-	MetaFilters      map[string]interface{}
-}
-
-type GetEntriesFilterOption func(*GetEntriesFilter)
-
-func WithLevel(level string) GetEntriesFilterOption {
-	return func(f *GetEntriesFilter) {
-		f.Level = level
-	}
-}
-
-func WithSession(session string) GetEntriesFilterOption {
-	return func(f *GetEntriesFilter) {
-		f.Session = session
-	}
-}
-
-func WithFrom(from time.Time) GetEntriesFilterOption {
-	return func(f *GetEntriesFilter) {
-		f.From = from
-	}
-}
-
-func WithTo(to time.Time) GetEntriesFilterOption {
-	return func(f *GetEntriesFilter) {
-		f.To = to
-	}
-}
-
-func WithSelectedMetaKeys(keys ...string) GetEntriesFilterOption {
-	return func(f *GetEntriesFilter) {
-		if f.SelectedMetaKeys == nil {
-			f.SelectedMetaKeys = []string{}
-		}
-		f.SelectedMetaKeys = append(f.SelectedMetaKeys, keys...)
-	}
-}
-
-func WithMetaFilters(filters map[string]interface{}) GetEntriesFilterOption {
-	return func(f *GetEntriesFilter) {
-		if f.MetaFilters == nil {
-			f.MetaFilters = map[string]interface{}{}
-		}
-		for k, v := range filters {
-			f.MetaFilters[k] = v
-		}
-	}
-}
-
-func NewGetEntriesFilter(opts ...GetEntriesFilterOption) *GetEntriesFilter {
-	f := &GetEntriesFilter{}
-	for _, opt := range opts {
-		opt(f)
-	}
-	return f
-}
-
-func (gef *GetEntriesFilter) Apply(metaKeys *MetaKeys, q *sqlbuilder.SelectBuilder) {
-	if gef.Level != "" {
-		q.Where(q.E("level", gef.Level))
-	}
-	if gef.Session != "" {
-		q.Where(q.E("session", gef.Session))
-	}
-	if !gef.From.IsZero() {
-		q.Where(q.GE("date", gef.From.Format(time.RFC3339)))
-	}
-	if !gef.To.IsZero() {
-		q.Where(q.LE("date", gef.To.Format(time.RFC3339)))
-	}
-	if len(gef.SelectedMetaKeys) > 0 {
-		stringKeys := []string{}
-		intKeys := []int{}
-		for _, k := range gef.SelectedMetaKeys {
-			v, ok := metaKeys.Get(k)
-			if !ok {
-				stringKeys = append(stringKeys, k)
-			} else {
-				intKeys = append(intKeys, v.ID)
-			}
-		}
-		exprs := []string{}
-		for _, k := range stringKeys {
-			exprs = append(exprs, q.In("mk.name", k))
-		}
-		for _, k := range intKeys {
-			exprs = append(exprs, q.In("mk.meta_key_id", k))
-		}
-		if len(exprs) > 0 {
-			q.Where(q.Or(exprs...))
-		}
-	}
-
-	if len(gef.MetaFilters) > 0 {
-		for k, v := range gef.MetaFilters {
-			v_, ok := metaKeys.Get(k)
-			entryType := ToLogEntryType(v)
-			fieldName := entryType.String() + "_value"
-			exprs := []string{}
-			exprs = append(exprs, q.And(q.E("mk.name", k), q.E(fmt.Sprintf("lem.%s", fieldName), v)))
-			if ok {
-				exprs = append(exprs, q.And(q.E("mk.meta_key_id", v_.ID), q.E(fmt.Sprintf("lem.%s", fieldName), v)))
-			}
-			q.Where(q.Or(exprs...))
-		}
-	}
 }
 
 func (l *LogWriter) GetEntries(filter *GetEntriesFilter) ([]*LogEntry, error) {
