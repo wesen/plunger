@@ -1,20 +1,20 @@
 package cmds
 
 import (
-	"bytes"
+	"embed"
 	_ "embed"
 	"fmt"
+	"github.com/go-go-golems/clay/pkg/sql"
 	"github.com/go-go-golems/sqleton/pkg/cmds"
 )
 
-//go:embed sqleton/logs.yaml
-var Logs []byte
+//go:embed sqleton
+var fs embed.FS
 
-func NewLogsCommand(connectionFactory cmds.DBConnectionFactory) (*cmds.SqlCommand, error) {
-	reader := bytes.NewReader(Logs)
-
+func NewLogsCommand(connectionFactory sql.DBConnectionFactory) (*cmds.SqlCommand, error) {
 	scl := &cmds.SqlCommandLoader{DBConnectionFactory: connectionFactory}
-	cmds_, err := scl.LoadCommandFromYAML(reader)
+
+	cmds_, err := scl.LoadCommands(fs, "sqleton/logs.yaml", nil, nil)
 	if err != nil {
 		return nil, err
 	}
