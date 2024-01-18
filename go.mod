@@ -53,7 +53,7 @@ require (
 	github.com/gin-contrib/sse v0.1.0 // indirect
 	github.com/gin-gonic/contrib v0.0.0-20221130124618-7e01895a63f2 // indirect
 	github.com/gin-gonic/gin v1.9.0 // indirect
-	github.com/go-go-golems/glazed v0.4.22 // indirect
+	github.com/go-go-golems/glazed v0.5.6 // indirect
 	github.com/go-go-golems/parka v0.4.14 // indirect
 	github.com/go-openapi/errors v0.20.3 // indirect
 	github.com/go-openapi/strfmt v0.21.7 // indirect
